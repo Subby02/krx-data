@@ -1,9 +1,9 @@
-use std::{
-    io::{BufReader, Read},
-    str::FromStr,
-};
+use std::io::{BufReader, Read};
 
+use anyhow::{Context, Result};
 use rust_decimal::Decimal;
+
+use crate::utils::{to_decimal, to_str, to_u32, to_u64};
 
 #[derive(Debug)]
 pub struct TradeMessage {
@@ -31,79 +31,43 @@ pub struct TradeMessage {
 }
 
 impl TradeMessage {
-    const LENS: [usize; 21] = [
-        2, 3, 8, 2, 2, 12, 6, 12, 1, 11, 11, 10, 11, 11, 11, 12, 22, 1, 15, 11, 11,
+    const LENS: [usize; 20] = [
+        3, 8, 2, 2, 12, 6, 12, 1, 11, 11, 10, 11, 11, 11, 12, 22, 1, 15, 11, 11,
     ];
 
-    pub fn new(message: &Vec<u8>) -> Self {
-        let mut reader = BufReader::new(message.as_slice());
+    pub fn new(reader: &mut BufReader<&[u8]>) -> Result<Self> {
         let mut value: Vec<Vec<u8>> = Vec::new();
 
         for len in Self::LENS {
             let mut buf: Vec<u8> = vec![0; len];
-            let _ = reader.read_exact(&mut buf);
+            reader.read_exact(&mut buf).context("reader 읽기 실패")?;
 
             value.push(buf);
         }
 
-        Self {
-            data_category: String::from_utf8_lossy(&value[0]).into_owned(),
-            info_category: String::from_utf8_lossy(&value[1]).into_owned(),
-            seq_no: std::str::from_utf8(&value[2])
-                .unwrap()
-                .parse::<u32>()
-                .expect("seq_no를 u32로 변환할 수 없습니다."),
-            board_id: String::from_utf8_lossy(&value[3]).into_owned(),
-            session_id: String::from_utf8_lossy(&value[4]).into_owned(),
-            isin: String::from_utf8_lossy(&value[5]).into_owned(),
-            isin_index: std::str::from_utf8(&value[6])
-                .unwrap()
-                .parse::<u32>()
-                .expect("isin_index를 u32로 변환할 수 없습니다."),
-            proc_time: String::from_utf8_lossy(&value[7]).into_owned(),
-            change_sign: String::from_utf8_lossy(&value[8]).into_owned(),
-            change: std::str::from_utf8(&value[9])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            trade_price: std::str::from_utf8(&value[10])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            trade_qty: std::str::from_utf8(&value[11])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            open: std::str::from_utf8(&value[12])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            high: std::str::from_utf8(&value[13])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            low: std::str::from_utf8(&value[14])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            acc_volume: std::str::from_utf8(&value[15])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            acc_amount: Decimal::from_str(std::str::from_utf8(&value[16]).unwrap()).unwrap(),
-            side: String::from_utf8_lossy(&value[17]).into_owned(),
-            lp_holding_qty: std::str::from_utf8(&value[18])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            best_ask: std::str::from_utf8(&value[19])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-            best_bid: std::str::from_utf8(&value[20])
-                .unwrap()
-                .parse::<u64>()
-                .expect("change를 u64로 변환할 수 없습니다."),
-        }
+        Ok(Self {
+            data_category: "A3".to_string(),
+            info_category: to_str(&value[0])
+                .context("info_category를 String으로 변환할 수 없음")?,
+            seq_no: to_u32(&value[1]).context("seq_no를 u32로 변환할 수 없음")?,
+            board_id: to_str(&value[2]).context("board_id를 String으로 변환할 수 없음")?,
+            session_id: to_str(&value[3]).context("session_id를 String으로 변환할 수 없음")?,
+            isin: to_str(&value[4]).context("isin를 String으로 변환할 수 없음")?,
+            isin_index: to_u32(&value[5]).context("isin_index를 u32로 변환할 수 없음")?,
+            proc_time: to_str(&value[6]).context("proc_time를 String으로 변환할 수 없음")?,
+            change_sign: to_str(&value[7]).context("change_sign를 String으로 변환할 수 없음")?,
+            change: to_u64(&value[8]).context("change를 u64로 변환할 수 없음")?,
+            trade_price: to_u64(&value[9]).context("trade_price를 u64로 변환할 수 없음")?,
+            trade_qty: to_u64(&value[10]).context("trade_qty를 u64로 변환할 수 없음")?,
+            open: to_u64(&value[11]).context("open를 u64로 변환할 수 없음")?,
+            high: to_u64(&value[12]).context("high를 u64로 변환할 수 없음")?,
+            low: to_u64(&value[13]).context("low를 u64로 변환할 수 없음")?,
+            acc_volume: to_u64(&value[14]).context("acc_volume를 u64로 변환할 수 없음")?,
+            acc_amount: to_decimal(&value[15]).context("acc_amount를 decimal로 변환할 수 없음")?,
+            side: to_str(&value[16]).context("side를 String으로 변환할 수 없음")?,
+            lp_holding_qty: to_u64(&value[17]).context("lp_holding_qty를 u64로 변환할 수 없음")?,
+            best_ask: to_u64(&value[18]).context("best_ask를 u64로 변환할 수 없음")?,
+            best_bid: to_u64(&value[19]).context("best_bid를 u64로 변환할 수 없음")?,
+        })
     }
 }

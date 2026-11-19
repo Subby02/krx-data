@@ -1,6 +1,11 @@
 use std::io::{BufReader, Read};
 
-use crate::orderbook::Orderbook;
+use anyhow::{Context, Result};
+
+use crate::{
+    orderbook::Orderbook,
+    utils::{to_str, to_u32, to_u64},
+};
 
 #[derive(Debug, Default)]
 pub struct OrderbookMessage {
@@ -23,89 +28,50 @@ pub struct OrderbookMessage {
 }
 
 impl OrderbookMessage {
-    const LENS: [usize; 55] = [
-        2, 3, 8, 2, 2, 12, 6, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12,
-        11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12,
-        12, 12, 12, 11, 12, 11, 12, 12,
+    const LENS: [usize; 54] = [
+        3, 8, 2, 2, 12, 6, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11,
+        11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12, 11, 11, 12, 12,
+        12, 12, 11, 12, 11, 12, 12,
     ];
 
-    pub fn new(message: &Vec<u8>) -> Self {
-        let mut reader = BufReader::new(message.as_slice());
+    pub fn new(reader: &mut BufReader<&[u8]>) -> Result<Self> {
         let mut value: Vec<Vec<u8>> = Vec::new();
 
         for len in Self::LENS {
             let mut buf: Vec<u8> = vec![0; len];
-            let _ = reader.read_exact(&mut buf);
+            reader.read_exact(&mut buf).context("reader 읽기 실패")?;
 
             value.push(buf);
         }
 
-        let mut orderbook = Orderbook::default();
-        for i in (8..48).step_by(4) {
-            let bid_price = std::str::from_utf8(&value[i])
-                .unwrap()
-                .parse::<u64>()
-                .expect("bid_price를 u64로 변환할 수 없습니다.");
-            let ask_price = std::str::from_utf8(&value[i + 1])
-                .unwrap()
-                .parse::<u64>()
-                .expect("ask_price를 u64로 변환할 수 없습니다.");
-            let bid_qty = std::str::from_utf8(&value[i + 2])
-                .unwrap()
-                .parse::<u64>()
-                .expect("bid_qty를 u64로 변환할 수 없습니다.");
-            let ask_qty = std::str::from_utf8(&value[i + 3])
-                .unwrap()
-                .parse::<u64>()
-                .expect("bid_qty를 u64로 변환할 수 없습니다.");
+        let mut orderbook: Orderbook = Orderbook::default();
+        for i in (7..47).step_by(4) {
+            let bid_price = to_u64(&value[i]).context("bid_price를 u64로 변환할 수 없음")?;
+            let ask_price = to_u64(&value[i + 1]).context("ask_price를 u64로 변환할 수 없음")?;
+            let bid_qty = to_u64(&value[i + 2]).context("bid_qty를 u64로 변환할 수 없음")?;
+            let ask_qty = to_u64(&value[i + 3]).context("bid_qty를 u64로 변환할 수 없음")?;
             orderbook.insert_ask(ask_price, ask_qty);
             orderbook.insert_bid(bid_price, bid_qty);
         }
 
-        Self {
-            data_category: String::from_utf8_lossy(&value[0]).into_owned(),
-            info_category: String::from_utf8_lossy(&value[1]).into_owned(),
-            seq_no: std::str::from_utf8(&value[2])
-                .unwrap()
-                .parse::<u32>()
-                .expect("seq_no를 u32로 변환할 수 없습니다."),
-            board_id: String::from_utf8_lossy(&value[3]).into_owned(),
-            session_id: String::from_utf8_lossy(&value[4]).into_owned(),
-            isin: String::from_utf8_lossy(&value[5]).into_owned(),
-            isin_index: std::str::from_utf8(&value[6])
-                .unwrap()
-                .parse::<u32>()
-                .expect("isin_index를 u32로 변환할 수 없습니다."),
-            proc_time: String::from_utf8_lossy(&value[7]).into_owned(),
+        Ok(Self {
+            data_category: "B6".to_string(),
+            info_category: to_str(&value[0])
+                .context("info_category를 String으로 변환할 수 없음")?,
+            seq_no: to_u32(&value[1]).context("seq_no를 u32로 변환할 수 없음")?,
+            board_id: to_str(&value[2]).context("board_id를 String으로 변환할 수 없음")?,
+            session_id: to_str(&value[3]).context("session_id를 String으로 변환할 수 없음")?,
+            isin: to_str(&value[4]).context("isin를 String으로 변환할 수 없음")?,
+            isin_index: to_u32(&value[5]).context("isin_index를 u32로 변환할 수 없음")?,
+            proc_time: to_str(&value[6]).context("proc_time를 String으로 변환할 수 없음")?,
             orderbook,
-            total_ask_qty: std::str::from_utf8(&value[48])
-                .unwrap()
-                .parse::<u64>()
-                .expect("total_ask_qty를 u64로 변환할 수 없습니다."),
-            total_bid_qty: std::str::from_utf8(&value[49])
-                .unwrap()
-                .parse::<u64>()
-                .expect("total_bid_qty를 u64로 변환할 수 없습니다."),
-            expected_price: std::str::from_utf8(&value[50])
-                .unwrap()
-                .parse::<u64>()
-                .expect("expected_price를 u64로 변환할 수 없습니다."),
-            expected_qty: std::str::from_utf8(&value[51])
-                .unwrap()
-                .parse::<u64>()
-                .expect("expected_qty를 u64로 변환할 수 없습니다."),
-            mid_price: std::str::from_utf8(&value[52])
-                .unwrap()
-                .parse::<u64>()
-                .expect("mid_price를 u64로 변환할 수 없습니다."),
-            mid_ask_qty: std::str::from_utf8(&value[53])
-                .unwrap()
-                .parse::<u64>()
-                .expect("mid_ask_qty를 u64로 변환할 수 없습니다."),
-            mid_bid_qty: std::str::from_utf8(&value[54])
-                .unwrap()
-                .parse::<u64>()
-                .expect("mid_bid_qty를 u64로 변환할 수 없습니다."),
-        }
+            total_ask_qty: to_u64(&value[47]).context("total_ask_qty를 u64로 변환할 수 없음")?,
+            total_bid_qty: to_u64(&value[48]).context("total_bid_qty를 u64로 변환할 수 없음")?,
+            expected_price: to_u64(&value[49]).context("expected_price를 u64로 변환할 수 없음")?,
+            expected_qty: to_u64(&value[50]).context("expected_qty를 u64로 변환할 수 없음")?,
+            mid_price: to_u64(&value[51]).context("mid_price를 u64로 변환할 수 없음")?,
+            mid_ask_qty: to_u64(&value[52]).context("mid_ask_qty를 u64로 변환할 수 없음")?,
+            mid_bid_qty: to_u64(&value[53]).context("mid_bid_qty를 u64로 변환할 수 없음")?,
+        })
     }
 }
