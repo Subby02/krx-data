@@ -1,47 +1,63 @@
-pub mod orderbook_message;
-pub mod trade_message;
+pub mod a3_body;
+pub mod b6_body;
 
 use std::io::{BufReader, Read};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 
-use crate::message::{orderbook_message::OrderbookMessage, trade_message::TradeMessage};
+use crate::{
+    message::{a3_body::A3Body, b6_body::B6Body},
+    utils::to_str,
+};
 
 #[derive(Debug)]
-pub enum MessageKind {
-    Orderbook(OrderbookMessage),
-    Trade(TradeMessage),
+pub enum MessageBody {
+    B6(B6Body),
+    A3(A3Body),
     Other,
 }
 
 #[derive(Debug)]
 pub struct Message {
-    pub kind: MessageKind,
+    pub data_category: String,
+    pub info_category: String,
+
+    pub body: MessageBody,
 }
 
 impl Message {
+    const DATA_LEN: usize = 2;
+    const INFO_LEN: usize = 3;
+
     pub fn new(message: &Vec<u8>) -> Result<Self> {
         let mut reader = BufReader::new(message.as_slice());
 
-        let mut kind_buf: [u8; 2] = [0; 2];
-        let _ = reader.read_exact(&mut kind_buf);
+        let mut data_buf: [u8; Self::DATA_LEN] = [0; Self::DATA_LEN];
+        reader
+            .read_exact(&mut data_buf)
+            .context("reader 읽기 실패")?;
+        let data = to_str(&data_buf).context("data를 String으로 변환할 수 없음")?;
 
-        match kind_buf {
-            [b'A', b'3'] => Ok(Self {
-                kind: MessageKind::Trade(
-                    TradeMessage::new(&mut reader)
-                        .context("TradeMessage를 생성하지 못하였습니다.")?,
-                ),
-            }),
-            [b'B', b'6'] => Ok(Self {
-                kind: MessageKind::Orderbook(
-                    OrderbookMessage::new(&mut reader)
-                        .context("OrderbookMessage를 생성하지 못하였습니다.")?,
-                ),
-            }),
-            _ => Ok(Self {
-                kind: MessageKind::Other,
-            }),
-        }
+        let mut info_buf: [u8; Self::INFO_LEN] = [0; Self::INFO_LEN];
+        reader
+            .read_exact(&mut info_buf)
+            .context("reader 읽기 실패")?;
+        let info = to_str(&info_buf).context("info를 String으로 변환할 수 없음")?;
+
+        let body = match data.as_str() {
+            "A3" => MessageBody::A3(
+                A3Body::new(&mut reader).context("A3Body를 생성하지 못하였습니다.")?,
+            ),
+            "B6" => MessageBody::B6(
+                B6Body::new(&mut reader).context("B6Body를 생성하지 못하였습니다.")?,
+            ),
+            _ => MessageBody::Other,
+        };
+
+        Ok(Self {
+            data_category: data,
+            info_category: info,
+            body,
+        })
     }
 }

@@ -5,7 +5,7 @@ use crossterm::cursor::MoveTo;
 use crossterm::queue;
 use crossterm::style::{Print, Stylize};
 
-use crate::message::{Message, MessageKind};
+use crate::message::{Message, MessageBody};
 use crate::orderbook::Orderbook;
 
 struct Trade {
@@ -23,21 +23,20 @@ pub struct Display {
 
 impl Display {
     pub fn update(&mut self, message: Message) {
-        match message.kind {
-            MessageKind::Orderbook(message) => {
+        match message.body {
+            MessageBody::B6(body) => {
                 self.time =
-                    NaiveTime::parse_from_str(message.proc_time.as_str(), "%H%M%S%6f").unwrap();
-                self.orderbook = message.orderbook;
+                    NaiveTime::parse_from_str(body.proc_time.as_str(), "%H%M%S%6f").unwrap();
+                self.orderbook = body.orderbook;
             }
-            MessageKind::Trade(message) => {
+            MessageBody::A3(body) => {
                 self.trades.push(Trade {
-                    time: NaiveTime::parse_from_str(message.proc_time.as_str(), "%H%M%S%6f")
-                        .unwrap(),
-                    price: message.trade_price,
-                    qty: message.trade_qty,
+                    time: NaiveTime::parse_from_str(body.proc_time.as_str(), "%H%M%S%6f").unwrap(),
+                    price: body.trade_price,
+                    qty: body.trade_qty,
                 });
             }
-            MessageKind::Other => {}
+            _ => {}
         }
     }
 

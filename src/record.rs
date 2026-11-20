@@ -1,6 +1,7 @@
 use crate::message::Message;
 use chrono::NaiveTime;
 
+#[derive(Debug)]
 pub struct Record {
     pub size: usize,
     pub time: NaiveTime,

@@ -4,8 +4,8 @@ use crossterm::{
     execute,
     terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use orderbook_cli::dump_reader::DumpReader;
-use orderbook_cli::{display::Display, message::MessageKind};
+use orderbook_cli::display::Display;
+use orderbook_cli::{dump_reader::DumpReader, message::MessageBody};
 use std::{io::stdout, thread, time::Duration};
 
 fn main() -> Result<()> {
@@ -16,16 +16,16 @@ fn main() -> Result<()> {
     execute!(out, EnterAlternateScreen, Clear(ClearType::All), Hide)?;
     reader
         .filter_map(|x| x.ok())
-        .filter(|x| match &x.message.kind {
-            MessageKind::Orderbook(msg) => msg.isin == "KR7005930003",
-            MessageKind::Trade(msg) => msg.isin == "KR7005930003",
+        .filter(|x| match &x.message.body {
+            MessageBody::B6(body) => body.isin == "KR7005930003",
+            MessageBody::A3(body) => body.isin == "KR7005930003",
             _ => false,
         })
         .for_each(|x| {
             dis.update(x.message);
             dis.show();
 
-            thread::sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(5));
         });
     execute!(out, Show, LeaveAlternateScreen)?;
 
