@@ -27,7 +27,7 @@ impl Iterator for DumpReader {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.reader.fill_buf() {
-            Ok(buf) if buf.is_empty() => return None,
+            Ok([]) => return None,
             Ok(_) => {}
             Err(e) => return Some(Err(e).context("버퍼 읽기 실패")),
         }

@@ -46,28 +46,32 @@ impl Display {
 
         for (i, bid) in self.orderbook.bids.iter().enumerate() {
             let y = 10 - i as u16;
-            queue!(
-                out,
-                MoveTo(0, 0),
-                Print(format!("{:<12}", self.time.format("%H:%M:%S"))),
-                MoveTo(0, y),
-                Print(format!("{:<12}", bid.qty).blue()),
-                MoveTo(13, y),
-                Print(format!("{:^11}", bid.price).blue()),
-            )
-            .unwrap();
+            if bid.price != 0 {
+                queue!(
+                    out,
+                    MoveTo(0, 0),
+                    Print(format!("{:<12}", self.time.format("%H:%M:%S"))),
+                    MoveTo(0, y),
+                    Print(format!("{:<12}", bid.qty)),
+                    MoveTo(13, y),
+                    Print(format!("{:^11}", bid.price).blue()),
+                )
+                .unwrap();
+            }
         }
 
         for (i, ask) in self.orderbook.asks.iter().enumerate() {
             let y = 11 + i as u16;
-            queue!(
-                out,
-                MoveTo(13, y),
-                Print(format!("{:^11}", ask.price).red()),
-                MoveTo(25, y),
-                Print(format!("{:>12}", ask.qty).red()),
-            )
-            .unwrap();
+            if ask.price != 0 {
+                queue!(
+                    out,
+                    MoveTo(13, y),
+                    Print(format!("{:^11}", ask.price).red()),
+                    MoveTo(25, y),
+                    Print(format!("{:>12}", ask.qty)),
+                )
+                .unwrap();
+            }
         }
 
         for (i, trade) in self.trades[self.trades.len().saturating_sub(5)..]

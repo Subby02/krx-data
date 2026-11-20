@@ -25,7 +25,7 @@ fn main() -> Result<()> {
             dis.update(x.message);
             dis.show();
 
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(1));
         });
     execute!(out, Show, LeaveAlternateScreen)?;
 
