@@ -37,7 +37,7 @@ impl Iterator for DumpReader {
         if let Err(e) = self.reader.read_exact(&mut size_buf) {
             return Some(Err(e).context("size 읽기 실패"));
         }
-        let size = to_usize(&size_buf[..Record::SIZE_LEN])?;
+        let size = to_usize(&size_buf[..Record::SIZE_LEN]).ok()?;
 
         //time
         let mut time_buf: Vec<u8> = vec![0; Record::TIME_LEN + 1];
@@ -45,7 +45,7 @@ impl Iterator for DumpReader {
             return Some(Err(e).context("time 읽기 실패"));
         }
         let time = match NaiveTime::parse_from_str(
-            to_str(&time_buf[..Record::TIME_LEN])?.as_str(),
+            to_str(&time_buf[..Record::TIME_LEN]).ok()?.as_str(),
             "%H%M%S%6f",
         ) {
             Ok(time) => time,

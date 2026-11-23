@@ -1,3 +1,4 @@
+pub mod a0_body;
 pub mod a3_body;
 pub mod b6_body;
 
@@ -6,7 +7,7 @@ use std::io::{BufReader, Read};
 use anyhow::{Context, Ok, Result};
 
 use crate::{
-    message::{a3_body::A3Body, b6_body::B6Body},
+    message::{a0_body::A0Body, a3_body::A3Body, b6_body::B6Body},
     utils::to_str,
 };
 
@@ -14,6 +15,7 @@ use crate::{
 pub enum MessageBody {
     B6(B6Body),
     A3(A3Body),
+    A0(A0Body),
     Other,
 }
 
@@ -51,6 +53,9 @@ impl Message {
             "B6" => MessageBody::B6(
                 B6Body::new(&mut reader).context("B6Body를 생성하지 못하였습니다.")?,
             ),
+            "A0" => {
+                MessageBody::A0(Body::new(&mut reader).context("A0Body를 생성하지 못하였습니다.")?)
+            }
             _ => MessageBody::Other,
         };
 
