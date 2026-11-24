@@ -53,9 +53,9 @@ impl Message {
             "B6" => MessageBody::B6(
                 B6Body::new(&mut reader).context("B6Body를 생성하지 못하였습니다.")?,
             ),
-            "A0" => {
-                MessageBody::A0(Body::new(&mut reader).context("A0Body를 생성하지 못하였습니다.")?)
-            }
+            "A0" => MessageBody::A0(
+                A0Body::new(&mut reader).context("A0Body를 생성하지 못하였습니다.")?,
+            ),
             _ => MessageBody::Other,
         };
 
