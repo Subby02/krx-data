@@ -1,162 +1,189 @@
-use std::io::{Write, stdout};
+use std::io::{Stdout, Write, stdout};
+use std::thread;
+use std::time::Duration;
 
-use anyhow::{Result, bail};
-use chrono::{NaiveDate, NaiveTime};
-use crossterm::cursor::MoveTo;
-use crossterm::queue;
+use anyhow::Result;
+use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::style::{Print, Stylize};
-use encoding_rs::EUC_KR;
-use rust_decimal::Decimal;
+use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::{execute, queue};
+use oms::master::KrxSpotMaster;
+use oms::quote::spot::{SpotFill, SpotQuoteWithoutLp};
 use thousands::Separable;
 
-use crate::message::{Message, MessageBody};
-use crate::orderbook::Orderbook;
-use crate::utils::{to_decimal, to_str, to_u64};
+use crate::dump_reader::DumpReader;
 
-struct Trade {
-    time: NaiveTime,
-    price: u64,
-    qty: u64,
-}
-
-#[derive(Default)]
 pub struct Display {
-    name: String,
-    code: String,
-    date: NaiveDate,
-    base_price: u64,
-    upper_limit: u64,
-    lower_limit: u64,
-    prev_volume: u64,
-    prev_amount: Decimal,
-    time: NaiveTime,
-    orderbook: Orderbook,
-    trades: Vec<Trade>,
+    path: String,
+    master: KrxSpotMaster,
+    delay: u64,
+    out: Stdout,
 }
 
 impl Display {
-    pub fn new(message: &Message) -> Result<Self> {
-        if let MessageBody::A0(body) = &message.body {
-            return Ok(Self {
-                name: EUC_KR.decode(&body.name_kr).0.trim().to_string(),
-                code: to_str(&body.short_code)?,
-                date: NaiveDate::parse_from_str(to_str(&body.biz_date)?.as_str(), "%Y%m%d")?,
-                base_price: to_u64(&body.base_price)?,
-                upper_limit: to_u64(&body.upper_limit)?,
-                lower_limit: to_u64(&body.lower_limit)?,
-                prev_volume: to_u64(&body.prev_volume)?,
-                prev_amount: to_decimal(&body.prev_amount)?,
-                ..Default::default()
-            });
-        }
-        bail!("메세지를 생성 할 수 없습니다.");
+    const Y_START: u16 = 4;
+
+    pub fn new(path: &str, master: KrxSpotMaster, delay: u64) -> Result<Self> {
+        Ok(Self {
+            path: path.to_string(),
+            master,
+            delay,
+            out: stdout(),
+        })
     }
 
-    pub fn update(&mut self, message: Message) -> Result<()> {
-        match message.body {
-            MessageBody::B6(body) => {
-                self.time =
-                    NaiveTime::parse_from_str(to_str(&body.proc_time)?.as_str(), "%H%M%S%6f")?;
-                self.orderbook = body.orderbook;
+    pub fn show(&mut self) -> Result<()> {
+        let reader = DumpReader::new(self.path.as_str())?;
+        execute!(self.out, EnterAlternateScreen, Clear(ClearType::All), Hide)?;
+
+        self.draw_master()?;
+
+        reader.filter_map(|x| x.ok()).for_each(|x| {
+            match &x.packet.identifier().data_code {
+                b"B6" => {
+                    let packet = x.packet.as_type::<SpotQuoteWithoutLp>();
+                    if packet.instrument_code == self.master.종목코드 {
+                        let _ = self.draw_order_book(packet);
+                    } else {
+                        return;
+                    }
+                }
+                b"A3" => {
+                    let packet = x.packet.as_type::<SpotFill>();
+                    if packet.instrument_code == self.master.종목코드 {
+                        let _ = self.draw_trade(packet);
+                    } else {
+                        return;
+                    }
+                }
+                _ => return,
             }
-            MessageBody::A3(body) => {
-                self.trades.push(Trade {
-                    time: NaiveTime::parse_from_str(
-                        to_str(&body.proc_time)?.as_str(),
-                        "%H%M%S%6f",
-                    )?,
-                    price: to_u64(&body.trade_price)?,
-                    qty: to_u64(&body.trade_qty)?,
-                });
-            }
-            _ => {}
-        }
+            let _ = self.out.flush();
+
+            thread::sleep(Duration::from_millis(self.delay));
+        });
+
+        execute!(self.out, Show, LeaveAlternateScreen)?;
+
         Ok(())
     }
 
-    pub fn show(&self) -> Result<()> {
-        let mut out = stdout();
-
+    fn draw_master(&mut self) -> Result<()> {
         queue!(
-            out,
+            self.out,
             MoveTo(0, 0),
-            Print(format!("{}({})", self.name, self.code)),
+            Print(format!(
+                "{}({})",
+                self.master.종목한글약명, self.master.종목코드
+            )),
             MoveTo(40, 0),
-            Print(format!("{:>10}", self.date.format("%Y-%m-%d"))),
+            Print(format!(
+                "{:>10}",
+                self.master.영업일자.to_date().format("%Y-%m-%d")
+            )),
             MoveTo(0, 1),
             Print("전일누적거래량"),
             MoveTo(38, 1),
-            Print(format!("{:>12}", self.prev_volume.separate_with_commas())),
+            Print(format!(
+                "{:>12}",
+                self.master.전일누적거래량.parse().separate_with_commas()
+            )),
             MoveTo(0, 2),
             Print("전일누적거래대금"),
             MoveTo(31, 2),
             Print(format!(
                 "{:>19}",
-                self.prev_amount.trunc().separate_with_commas()
+                self.master
+                    .전일누적거래대금
+                    .parse_integer_part()
+                    .separate_with_commas()
             )),
             MoveTo(34, 4),
             Print(format!(
                 "{:>11} 기준",
-                self.base_price.separate_with_commas()
+                self.master.기준가격.parse().separate_with_commas()
             )),
             MoveTo(34, 5),
-            Print(format!("{:>11} 상한", self.upper_limit.separate_with_commas()).red()),
+            Print(
+                format!(
+                    "{:>11} 상한",
+                    self.master.상한가.parse().separate_with_commas()
+                )
+                .red()
+            ),
             MoveTo(34, 6),
-            Print(format!("{:>11} 하한", self.lower_limit.separate_with_commas()).blue()),
+            Print(
+                format!(
+                    "{:>11} 하한",
+                    self.master.하한가.parse().separate_with_commas()
+                )
+                .blue()
+            ),
         )?;
+        Ok(())
+    }
 
-        let orderbook_start_y = 4;
-        for (i, ask) in self.orderbook.asks.iter().enumerate() {
-            let y = orderbook_start_y + 9 - i as u16;
-            let ask_price = to_u64(&ask.price)?;
-            let ask_qty = to_u64(&ask.qty)?;
+    fn draw_order_book(&mut self, packet: &SpotQuoteWithoutLp) -> Result<()> {
+        for (i, quote) in packet.order_book.iter().enumerate() {
+            let ask_y = Self::Y_START + 9 - i as u16;
+            let ask_price = quote.prices.ask.parse();
+            let ask_qty = quote.quantities.ask.parse();
 
-            if ask_price != 0 {
+            if quote.prices.ask.parse() != 0 {
                 queue!(
-                    out,
-                    MoveTo(0, y),
+                    self.out,
+                    MoveTo(0, ask_y),
                     Print(format!("{:<16}", ask_qty.separate_with_commas())),
-                    MoveTo(17, y),
-                    Print(format!("{:^16}", ask_price.separate_with_commas()).blue()),
+                    MoveTo(17, ask_y),
+                    Print(format!("{:^16}", ask_price.separate_with_commas()).red()),
                 )?;
             }
-        }
 
-        for (i, bid) in self.orderbook.bids.iter().enumerate() {
-            let y = orderbook_start_y + 10 + i as u16;
-            let bid_price = to_u64(&bid.price)?;
-            let bid_qty = to_u64(&bid.qty)?;
+            let bid_y = Self::Y_START + 10 + i as u16;
+            let bid_price = quote.prices.bid.parse();
+            let bid_qty = quote.quantities.bid.parse();
 
             if bid_price != 0 {
                 queue!(
-                    out,
-                    MoveTo(17, y),
-                    Print(format!("{:^16}", bid_price.separate_with_commas()).red()),
-                    MoveTo(34, y),
+                    self.out,
+                    MoveTo(17, bid_y),
+                    Print(format!("{:^16}", bid_price.separate_with_commas()).blue()),
+                    MoveTo(34, bid_y),
                     Print(format!("{:>16}", bid_qty.separate_with_commas())),
-                    MoveTo(17, orderbook_start_y + 20),
-                    Print(format!("{:^16}", self.time.format("%H:%M:%S"))),
                 )?;
             }
         }
+        queue!(
+            self.out,
+            MoveTo(17, Self::Y_START + 20),
+            Print(format!(
+                "{:^16}",
+                packet.time.parse_time().format("%H:%M:%S")
+            ))
+        )?;
+        Ok(())
+    }
 
-        for (i, trade) in self.trades[self.trades.len().saturating_sub(5)..]
-            .iter()
-            .enumerate()
-        {
-            let y = orderbook_start_y + 26 - i as u16;
-            queue!(
-                out,
-                MoveTo(0, y),
-                Print(format!("{:<16}", trade.time.format("%H:%M:%S"))),
-                MoveTo(17, y),
-                Print(format!("{:^16}", trade.price.separate_with_commas())),
-                MoveTo(34, y),
-                Print(format!("{:>16}", trade.qty.separate_with_commas())),
-            )?;
-        }
-
-        out.flush()?;
+    fn draw_trade(&mut self, packet: &SpotFill) -> Result<()> {
+        let y = Self::Y_START + 22;
+        queue!(
+            self.out,
+            MoveTo(0, y),
+            Print(format!(
+                "{:<16}",
+                packet.time.parse_time().format("%H:%M:%S")
+            )),
+            MoveTo(17, y),
+            Print(format!(
+                "{:^16}",
+                packet.last_price.parse().separate_with_commas()
+            )),
+            MoveTo(34, y),
+            Print(format!(
+                "{:>16}",
+                packet.volume.parse().separate_with_commas()
+            )),
+        )?;
         Ok(())
     }
 }

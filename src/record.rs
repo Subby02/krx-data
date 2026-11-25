@@ -1,11 +1,10 @@
-use crate::message::Message;
 use chrono::NaiveTime;
+use oms::quote::packet::PacketBuffer;
 
-#[derive(Debug)]
 pub struct Record {
     pub size: usize,
     pub time: NaiveTime,
-    pub message: Message,
+    pub packet: PacketBuffer,
 }
 
 impl Record {
